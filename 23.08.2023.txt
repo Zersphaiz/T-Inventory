@@ -1,0 +1,879 @@
+import tkinter as tk
+from tkinter import ttk, messagebox
+import pandas as pd
+import numpy as np
+import os
+import datetime
+import gevent
+import bottle
+import geventwebsocket
+from PIL import Image, ImageTk
+
+
+class InventoryApp(tk.Tk):
+    def __init__(self):
+        super().__init__()
+
+        # Load the logo image
+        self.logo_image = Image.open("logo.png")
+        self.logo_photo = ImageTk.PhotoImage(self.logo_image)
+
+        # Create a label to display the logo
+        self.logo_label = tk.Label(self, image=self.logo_photo)
+        self.logo_label.grid(row=0, column=0, columnspan=6, padx=10, pady=5)
+
+        self.title("T-Inventory")
+        # Maximize the window and keep borders
+        self.state('zoomed')
+
+        # Load and set the window icon
+        icon_image = Image.open("t-icon.ico")  # Replace with your icon image
+        self.icon_photo = ImageTk.PhotoImage(icon_image)
+        self.tk.call('wm', 'iconphoto', self._w, self.icon_photo)
+
+        # Initialize maincategory and subcategory attributes as empty lists and dictionaries
+        self.maincategory = self.read_column("rows.xlsx", "Main Category of Asset", "Main Category of Asset")
+        self.subcategory = []
+        self.location = []
+        self.status = []
+        self.asset_type = []
+        self.confidentiality = []
+        self.integrity = []
+        self.availability = []
+        self.value = []
+        self.conf_class = []
+        self.filtered_indices = []  # Initialize an empty list for storing original indices
+
+        # Load main category data from "rows.xlsx"
+        self.maincategory = self.read_column("rows.xlsx", "Main Category of Asset", "Main Category of Asset")
+        if not self.maincategory:
+            messagebox.showwarning("Warning", "Main category data is empty!")
+
+        self.location = self.read_column("rows.xlsx", "Location", "Location")
+        if not self.location:
+            messagebox.showwarning("Warning", "Location data is empty!")
+
+        self.status = self.read_column("rows.xlsx", "Status of Asset", "Status of Asset")
+        if not self.status:
+            messagebox.showwarning("Warning", "Status data is empty!")
+
+        self.asset_type = self.read_column("rows.xlsx", "Asset Type", "Asset Type")
+        if not self.asset_type:
+            messagebox.showwarning("Warning", "Asset Type data is empty!")
+
+        self.confidentiality = self.read_column("rows.xlsx", "Confidentiality", "Confidentiality")
+        if not self.confidentiality:
+            messagebox.showwarning("Warning", "Confidentiality data is empty!")
+
+        self.integrity = self.read_column("rows.xlsx", "Confidentiality", "Confidentiality")
+        if not self.integrity:
+            messagebox.showwarning("Warning", "Integrity data is empty!")
+
+        self.availability = self.read_column("rows.xlsx", "Confidentiality", "Confidentiality")
+        if not self.availability:
+            messagebox.showwarning("Warning", "Availability data is empty!")
+
+        self.value = self.read_column("rows.xlsx", "Confidentiality", "Confidentiality")
+        if not self.value:
+            messagebox.showwarning("Warning", "Asset value data is empty!")
+
+        self.conf_class = self.read_column("rows.xlsx", "Confidentiality Classification", "Confidentiality Classification of Asset")
+        if not self.conf_class:
+            messagebox.showwarning("Warning", "Confidentiality Classification of Asset data is empty!")
+
+        # Create the maincategory Combobox and set its values
+        self.maincategory_combobox = ttk.Combobox(self, values=self.maincategory)
+
+        # Create the location Combobox and set its values
+        self.location_combobox = ttk.Combobox(self, values=self.location)
+
+        # Create the Status Combobox and set its values
+        self.status_combobox = ttk.Combobox(self, values=self.status)
+
+        # Create the Asset Type Combobox and set its values
+        self.asset_type_combobox = ttk.Combobox(self, values=self.asset_type)
+
+        # Create the Confidentiality Combobox and set its values
+        self.confidentiality_combobox = ttk.Combobox(self, values=self.confidentiality)
+
+        # Create the Integrity Combobox and set its values
+        self.integrity_combobox = ttk.Combobox(self, values=self.integrity)
+
+        # Create the Availability Combobox and set its values
+        self.availability_combobox = ttk.Combobox(self, values=self.availability)
+
+        # Create the Value Combobox and set its values
+        self.value_combobox = ttk.Combobox(self, values=self.value)
+
+        # Create the Confidentiality Classification of Asset Combobox and set its values
+        self.conf_class_combobox = ttk.Combobox(self, values=self.conf_class)
+
+        # Create the subcategory Combobox and set its initial values to an empty list
+        self.subcategory_combobox = ttk.Combobox(self, values=[])
+        self.subcategory_combobox.set("Please pick the main category at first")
+        self.subcategory_combobox.config(width=33)
+
+        # Bind the update_subcategories method to the <<ComboboxSelected>> event of maincategory_combobox
+        self.maincategory_combobox.bind("<<ComboboxSelected>>", self.update_subcategories)
+
+        # Load inventory data from "inventory_data.xlsx" or create an empty DataFrame
+        if os.path.exists("inventory_data.xlsx"):
+            self.inventory_df = pd.read_excel("inventory_data.xlsx")
+            self.inventory_df.replace("", pd.NA, inplace=True)  # Replace empty strings with NaN values
+        else:
+            self.inventory_df = pd.DataFrame(
+                columns=["Main Category of Asset", "Sub Category of Asset", "Product ID", "Asset Name", "Supplier", "Location", "Status", "Asset Description",
+                         "Asset Type", "Brand", "Model", "Serial Number", "Quantity", "Purchase Date", "Title of Asset Owner", "Owner Department of Asset", "Used by Process",
+                         "Confidentiality", "Integrity", "Availability", "Asset Value", "Confidentiality Classification of Asset", "RTO", "RPO"])
+
+        # Initialize the filtered_inventory_df attribute
+        self.filtered_inventory_df = self.inventory_df.copy()
+
+        # Create attributes for UI elements
+        self.maincategory_label = tk.Label(self, text="Main Category of Asset:")
+        self.subcategory_label = tk.Label(self, text="Sub Category of Asset:")
+
+        self.id_label = tk.Label(self, text="Product ID: ")
+        self.id_entry = tk.Entry(self)
+
+        self.assetname_label = tk.Label(self, text="Asset Name: ")
+        self.assetname_entry = tk.Entry(self)
+
+        self.supplier_label = tk.Label(self, text="Supplier: ")
+        self.supplier_entry = tk.Entry(self)
+
+        self.location_label = tk.Label(self, text="Location:")
+
+        self.status_label = tk.Label(self, text="Status:")
+
+        self.assetdescription_label = tk.Label(self, text="Asset Description: ")
+        self.assetdescription_entry = tk.Entry(self)
+
+        self.asset_type_label = tk.Label(self, text="Asset Type:")
+
+        self.brand_label = tk.Label(self, text="Brand: ")
+        self.brand_entry = tk.Entry(self)
+
+        self.model_label = tk.Label(self, text="Model: ")
+        self.model_entry = tk.Entry(self)
+
+        self.serial_label = tk.Label(self, text="Serial Number: ")
+        self.serial_entry = tk.Entry(self)
+
+        self.quantity_label = tk.Label(self, text="Quantity: ")
+        self.quantity_entry = tk.Entry(self)
+
+        self.purchase_date_label = tk.Label(self, text="Purchase Date:")
+        self.purchase_date_entry = tk.Entry(self)
+
+        self.title_label = tk.Label(self, text="Title of Asset Owner: ")
+        self.title_entry = tk.Entry(self)
+
+        self.owner_department_label = tk.Label(self, text="Owner Department of Asset: ")
+        self.owner_department_entry = tk.Entry(self)
+
+        self.process_label = tk.Label(self, text="Used by Process: ")
+        self.process_entry = tk.Entry(self)
+
+        self.confidentiality_label = tk.Label(self, text="Confidentiality:")
+
+        self.integrity_label = tk.Label(self, text="Integrity:")
+
+        self.availability_label = tk.Label(self, text="Availability:")
+
+        self.value_label = tk.Label(self, text="Asset Value:")
+
+        self.conf_class_label = tk.Label(self, text="Confidentiality Classification of Asset:")
+
+        self.rto_label = tk.Label(self, text="RTO: ")
+        self.rto_entry = tk.Entry(self)
+
+        self.rpo_label = tk.Label(self, text="RPO: ")
+        self.rpo_entry = tk.Entry(self)
+
+        # Create GUI elements
+        self.add_button = tk.Button(self, text="Add Product", command=self.add_product)
+        self.remove_button = tk.Button(self, text="Remove Product", command=self.remove_product)
+        self.edit_button = tk.Button(self, text="Edit Product", command=self.edit_product)
+
+        # Create a label for the search entry field
+        self.search_label = tk.Label(self, text="Search:")
+        self.search_label.grid(row=9, column=1, sticky="e", padx=10, pady=5)
+
+        # Create a search entry field
+        self.search_entry = tk.Entry(self)
+        self.search_entry.grid(row=9, column=2, sticky="w", padx=10, pady=5)
+        self.search_entry.bind("<KeyRelease>", self.search_items)
+
+        # Create a table to display the inventory
+        self.tree = ttk.Treeview(self, columns=["Main Category of Asset", "Sub Category of Asset", "Product ID", "Asset Name", "Supplier", "Location", "Status",
+                                                "Asset Description", "Asset Type", "Brand", "Model", "Serial Number", "Quantity", "Purchase Date", "Title of Asset Owner", "Owner Department of Asset", "Used by Process",
+                                                "Confidentiality", "Integrity", "Availability", "Asset Value", "Confidentiality Classification of Asset", "RTO", "RPO"],
+                                 show="headings")
+
+        # Create column headers and bind them to the sorting function
+        for col in ["Main Category of Asset", "Sub Category of Asset", "Product ID", "Asset Name", "Supplier",
+                    "Location", "Status",
+                    "Asset Description", "Asset Type", "Brand", "Model", "Serial Number", "Quantity", "Purchase Date",
+                    "Title of Asset Owner", "Owner Department of Asset", "Used by Process", "Confidentiality",
+                    "Integrity",
+                    "Availability", "Asset Value", "Confidentiality Classification of Asset", "RTO", "RPO"]:
+            self.tree.heading(col, text=col, command=lambda c=col: self.sort_column(c, False))
+
+        self.tree.heading("Main Category of Asset", text="Main Category of Asset")
+        self.tree.heading("Sub Category of Asset", text="Sub Category of Asset")
+        self.tree.heading("Product ID", text="Product ID")
+        self.tree.heading("Asset Name", text="Asset Name")
+        self.tree.heading("Supplier", text="Supplier")
+        self.tree.heading("Location", text="Location")
+        self.tree.heading("Status", text="Status")
+        self.tree.heading("Asset Description", text="Asset Description")
+        self.tree.heading("Asset Type", text="Asset Type")
+        self.tree.heading("Brand", text="Brand")
+        self.tree.heading("Model", text="Model")
+        self.tree.heading("Serial Number", text="Serial Number")
+        self.tree.heading("Quantity", text="Quantity")
+        self.tree.heading("Purchase Date", text="Purchase Date")
+        self.tree.heading("Title of Asset Owner", text="Title of Asset Owner")
+        self.tree.heading("Owner Department of Asset", text="Owner Department of Asset")
+        self.tree.heading("Used by Process", text="Used by Process")
+        self.tree.heading("Confidentiality", text="Confidentiality")
+        self.tree.heading("Integrity", text="Integrity")
+        self.tree.heading("Availability", text="Availability")
+        self.tree.heading("Asset Value", text="Asset Value")
+        self.tree.heading("Confidentiality Classification of Asset", text="Confidentiality Classification of Asset")
+        self.tree.heading("RTO", text="RTO")
+        self.tree.heading("RPO", text="RPO")
+        self.tree.heading("#0", text="Row Number")
+        self.tree.column("#0", width=80)
+
+        self.tree.bind("<ButtonRelease-1>", self.select_treeview_item)
+        # Create a vertical scrollbar
+        self.vertical_scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.tree.yview)
+
+        # Configure the vertical scrollbar to affect the Treeview's yscrollcommand
+        self.tree.config(yscrollcommand=self.vertical_scrollbar.set)
+        self.vertical_scrollbar.config(command=self.tree.yview)
+
+        self.maincategory_label.grid(row=1, column=0, sticky="e", padx=45, pady=5)
+        self.maincategory_combobox.grid(row=1, column=1, sticky="w", padx=45, pady=5)
+        self.subcategory_label.grid(row=1, column=2, sticky="e", padx=45, pady=5)
+        self.subcategory_combobox.grid(row=1, column=3, sticky="w", padx=45, pady=5)
+        self.id_label.grid(row=1, column=4, sticky="e", padx=45, pady=5)
+        self.id_entry.grid(row=1, column=5, sticky="w", padx=45, pady=5)
+        self.assetname_label.grid(row=2, column=0, sticky="e", padx=45, pady=5)
+        self.assetname_entry.grid(row=2, column=1, sticky="w", padx=45, pady=5)
+        self.supplier_label.grid(row=2, column=2, sticky="e", padx=45, pady=5)
+        self.supplier_entry.grid(row=2, column=3, sticky="w", padx=45, pady=5)
+        self.location_label.grid(row=2, column=4, sticky="e", padx=45, pady=5)
+        self.location_combobox.grid(row=2, column=5, sticky="w", padx=45, pady=5)
+        self.status_label.grid(row=3, column=0, sticky="e", padx=45, pady=5)
+        self.status_combobox.grid(row=3, column=1, sticky="w", padx=45, pady=5)
+        self.assetdescription_label.grid(row=3, column=2, sticky="e", padx=45, pady=5)
+        self.assetdescription_entry.grid(row=3, column=3, sticky="w", padx=45, pady=5)
+        self.asset_type_label.grid(row=3, column=4, sticky="e", padx=45, pady=5)
+        self.asset_type_combobox.grid(row=3, column=5, sticky="w", padx=45, pady=5)
+        self.brand_label.grid(row=4, column=0, sticky="e", padx=45, pady=5)
+        self.brand_entry.grid(row=4, column=1, sticky="w", padx=45, pady=5)
+        self.model_label.grid(row=4, column=2, sticky="e", padx=45, pady=5)
+        self.model_entry.grid(row=4, column=3, sticky="w", padx=45, pady=5)
+        self.serial_label.grid(row=4, column=4, sticky="e", padx=45, pady=5)
+        self.serial_entry.grid(row=4, column=5, sticky="w", padx=45, pady=5)
+        self.quantity_label.grid(row=5, column=0, sticky="e", padx=45, pady=5)
+        self.quantity_entry.grid(row=5, column=1, sticky="w", padx=45, pady=5)
+        self.purchase_date_label.grid(row=5, column=2, sticky="e", padx=45, pady=5)
+        self.purchase_date_entry.grid(row=5, column=3, sticky="w", padx=45, pady=5)
+        self.title_label.grid(row=5, column=4, sticky="e", padx=45, pady=5)
+        self.title_entry.grid(row=5, column=5, sticky="w", padx=45, pady=5)
+        self.owner_department_label.grid(row=6, column=0, sticky="e", padx=45, pady=5)
+        self.owner_department_entry.grid(row=6, column=1, sticky="w", padx=45, pady=5)
+        self.process_label.grid(row=6, column=2, sticky="e", padx=45, pady=5)
+        self.process_entry.grid(row=6, column=3, sticky="w", padx=45, pady=5)
+        self.confidentiality_label.grid(row=6, column=4, sticky="e", padx=45, pady=5)
+        self.confidentiality_combobox.grid(row=6, column=5, sticky="w", padx=45, pady=5)
+        self.integrity_label.grid(row=7, column=0, sticky="e", padx=45, pady=5)
+        self.integrity_combobox.grid(row=7, column=1, sticky="w", padx=45, pady=5)
+        self.availability_label.grid(row=7, column=2, sticky="e", padx=45, pady=5)
+        self.availability_combobox.grid(row=7, column=3, sticky="w", padx=45, pady=5)
+        self.value_label.grid(row=7, column=4, sticky="e", padx=45, pady=5)
+        self.value_combobox.grid(row=7, column=5, sticky="w", padx=45, pady=5)
+        self.conf_class_label.grid(row=8, column=0, sticky="e", padx=45, pady=5)
+        self.conf_class_combobox.grid(row=8, column=1, sticky="w", padx=45, pady=5)
+        self.rto_label.grid(row=8, column=2, sticky="e", padx=45, pady=5)
+        self.rto_entry.grid(row=8, column=3, sticky="w", padx=45, pady=5)
+        self.rpo_label.grid(row=8, column=4, sticky="e", padx=45, pady=5)
+        self.rpo_entry.grid(row=8, column=5, sticky="w", padx=45, pady=5)
+
+        # Adjust the width of each column in the treeview
+        self.tree.column("Main Category of Asset", width=50)
+        self.tree.column("Sub Category of Asset", width=50)
+        self.tree.column("Product ID", width=50)
+        self.tree.column("Asset Name", width=50)
+        self.tree.column("Supplier", width=50)
+        self.tree.column("Location", width=50)
+        self.tree.column("Status", width=50)
+        self.tree.column("Asset Description", width=50)
+        self.tree.column("Asset Type", width=50)
+        self.tree.column("Brand", width=50)
+        self.tree.column("Model", width=50)
+        self.tree.column("Serial Number", width=50)
+        self.tree.column("Quantity", width=50)
+        self.tree.column("Purchase Date", width=50)
+        self.tree.column("Title of Asset Owner", width=50)
+        self.tree.column("Owner Department of Asset", width=50)
+        self.tree.column("Used by Process", width=50)
+        self.tree.column("Confidentiality", width=50)
+        self.tree.column("Integrity", width=50)
+        self.tree.column("Availability", width=50)
+        self.tree.column("Asset Value", width=50)
+        self.tree.column("Confidentiality Classification of Asset", width=50)
+        self.tree.column("RTO", width=50)
+        self.tree.column("RPO", width=50)
+
+        self.add_button.grid(row=9, column=3, sticky="e", padx=45, pady=5)
+        #self.remove_button.grid(row=9, column=5, padx=45, pady=5)
+        self.edit_button.grid(row=9, column=4, sticky="w", padx=45, pady=5)
+
+        self.tree.grid(row=10, column=0, columnspan=6, padx=45, pady=5, sticky="nsew")
+        self.vertical_scrollbar.grid(row=10, column=6, rowspan=40, sticky="ns")
+
+        self.row_number_label = tk.Label(self, text="", padx=10, pady=5)
+        self.row_number_label.grid(row=11, column=0, columnspan=6, sticky="w")
+
+        # Create a label for the search entry field
+        self.remove_label = tk.Label(self, text="Remove by Product ID:")
+        self.remove_label.grid(row=12, column=0, padx=45, pady=5)
+
+        # Create an entry field for entering the Product ID for removal
+        self.remove_by_product_id_entry = tk.Entry(self)
+
+        # Create a button for removing by Product ID
+        self.remove_by_product_id_button = tk.Button(self, text="Remove by Product ID",
+                                                     command=self.remove_by_product_id)
+
+        # Place the entry field and button in the GUI
+        self.remove_by_product_id_entry.grid(row=12, column=1, padx=45, pady=5, sticky="w")
+        self.remove_by_product_id_button.grid(row=12, column=2, padx=45, pady=5, sticky="w")
+
+        # Configure the row and column weights to make the Treeview expand with the window
+        self.grid_rowconfigure(10, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+
+        # Optionally, you can set a minimum size for the window to prevent resizing beyond the specified dimensions
+        self.minsize(800, 400)
+        # Populate the list view with the existing data
+        self.update_table()
+
+        # Bind the on_closing method to the WM_DELETE_WINDOW event
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+    def update_table(self, data=None):
+        # Clear the existing rows in the table
+        for row in self.tree.get_children():
+            self.tree.delete(row)
+
+        # Use the filtered data if provided, otherwise use the full inventory DataFrame
+        data_to_display = data.copy() if data is not None else self.inventory_df.copy()
+
+        # Add a row number to the DataFrame before displaying it in the Treeview
+        data_to_display["Row Number"] = range(1, len(data_to_display) + 1)
+
+        # Display the data in the Treeview with alternating tag configurations
+        for index, row_data in data_to_display.iterrows():
+            if index % 2 == 0:
+                tag = "even_row"
+            else:
+                tag = "odd_row"
+
+            self.tree.insert("", "end", values=row_data.tolist(), tags=(tag,))
+
+        # Update row number label
+        row_count = len(data_to_display)
+        self.row_number_label.config(text=f"Total Rows: {row_count}")
+
+        # Refresh the treeview to make sure it displays the updated data
+        self.tree.update_idletasks()
+
+    def save_to_excel(self):
+        # Replace all NaN values with empty spaces
+        self.inventory_df = self.inventory_df.replace(np.nan, "", regex=True)
+
+        # Save the current inventory data to the Excel file, replacing NaN values with empty strings
+        with pd.ExcelWriter("inventory_data.xlsx") as writer:
+            self.inventory_df.fillna("", inplace=True)
+            self.inventory_df.to_excel(writer, sheet_name="Inventory", index=False)
+
+    def on_closing(self):
+        # Save the data to the Excel file before exiting
+        self.save_to_excel()
+        self.destroy()
+
+    def read_column(self, file_path, sheet_name, column_name):
+        """
+        Read a specific column from an Excel file and return its values as a list.
+        Parameters:
+            file_path (str): Path to the Excel file.
+            sheet_name (str): Name of the sheet in the Excel file.
+            column_name (str): Name of the column to read from the Excel sheet.
+        Returns:
+            list: A list containing the values from the specified column.
+        """
+        try:
+            df = pd.read_excel(file_path, sheet_name=sheet_name)
+            if column_name not in df.columns:
+                raise ValueError(f"The column '{column_name}' does not exist in the sheet '{sheet_name}'.")
+            return df[column_name].tolist()
+        except Exception as e:
+            print(f"An error occurred while reading the column: {str(e)}")
+            return []
+
+    def add_product(self):
+        # Retrieve input values from the entry fields
+        maincategory = self.maincategory_combobox.get().strip()
+        subcategory = self.maincategory_combobox.get().strip()
+        id = self.id_entry.get().strip()
+
+        if not id:
+            id = self.get_smallest_unique_id()
+        else:
+            id = int(id)
+        assetname = self.assetname_entry.get().strip()
+        supplier = self.supplier_entry.get().strip()
+        location = self.location_combobox.get().strip()
+        status = self.status_combobox.get().strip()
+        assetdescription = self.assetdescription_entry.get().strip()
+        asset_type = self.asset_type_combobox.get().strip()
+        brand = self.brand_entry.get().strip()
+        model = self.model_entry.get().strip()
+        serial = self.serial_entry.get().strip()
+        quantity = self.quantity_entry.get().strip()
+        purchase_date = self.purchase_date_entry.get().strip()
+        title = self.title_entry.get().strip()
+        owner_department = self.owner_department_entry.get().strip()
+        process = self.process_entry.get().strip()
+        confidentiality = self.confidentiality_combobox.get().strip()
+        integrity = self.integrity_combobox.get().strip()
+        availability = self.availability_combobox.get().strip()
+        value = self.value_combobox.get().strip()
+        conf_class = self.conf_class_combobox.get().strip()
+        rto = self.rto_entry.get().strip()
+        rpo = self.rpo_entry.get().strip()
+
+        """# Validate input fields
+        if not all((maincategory, subcategory, id, assetname, supplier, location, status, assetdescription, asset_type, brand, model, serial, quantity, purchase_date, title,
+                    owner_department, process, confidentiality, integrity, availability, value, conf_class, rto, rpo)):
+            # If any information is missing, show an error message and deny adding the item
+            messagebox.showerror("Error", "Please fill in all information for the product.")
+            return"""
+
+        # Check if the entered ID is empty
+        if not id:
+            # Assign the smallest unique ID to the item
+            id = str(self.get_smallest_unique_id())
+
+        # Convert the ID to integer
+        try:
+            id = int(id)
+        except ValueError:
+            messagebox.showerror("Error", "Please enter a valid numeric ID.")
+            return
+
+        # Check if the entered ID already exists
+        if id in self.inventory_df["Product ID"].values:
+            messagebox.showerror("Error", "Entered ID already exists. Please enter a unique ID.")
+            return
+
+        # Validate quantity input
+        if quantity.strip() != "":
+            try:
+                quantity = int(quantity)
+                if quantity <= 0:
+                    raise ValueError("Quantity must be a non-negative integer.")
+            except ValueError as e:
+                # If the quantity is not a valid non-negative integer, show an error message
+                messagebox.showerror("Error", f"Invalid quantity: {e}")
+                return
+
+            # Check if a serial number was entered
+        if serial:
+            if serial in self.inventory_df["Serial Number"].values:
+                messagebox.showerror("Error",
+                                     f"Serial Number '{serial}' already exists! Please enter a different serial number.")
+                return
+
+        try:
+            # Create a new DataFrame with the data of the item to be added
+            new_item_df = pd.DataFrame({
+                "Main Category of Asset": [maincategory],
+                "Sub Category of Asset": [subcategory],
+                "Product ID": [id],
+                "Asset Name": [assetname],
+                "Supplier": [supplier],
+                "Location": [location],
+                "Status": [status],
+                "Asset Description": [assetdescription],
+                "Asset Type": [asset_type],
+                "Brand": [brand],
+                "Model": [model],
+                "Serial Number": [serial],
+                "Quantity": [quantity],
+                "Purchase Date": [purchase_date],
+                "Title of Asset Owner": [title],
+                "Owner Department of Asset": [owner_department],
+                "Used by Process": [process],
+                "Confidentiality": [confidentiality],
+                "Integrity": [integrity],
+                "Availability": [availability],
+                "Asset Value": [value],
+                "Confidentiality Classification of Asset": [conf_class],
+                "RTO": [rto],
+                "RPO": [rpo]
+            })
+
+            # Get the selected main category from the Combobox
+            subcategory = self.subcategory_combobox.get().strip()
+
+            # Validate Main Category of Asset input
+            if not maincategory:
+                messagebox.showerror("Error", "Please select a main category.")
+                return
+
+            # Validate Sub Category of Asset input
+            subcategory = self.subcategory_combobox.get().strip()
+            if not subcategory:
+                messagebox.showerror("Error", "Please select a subcategory.")
+                return
+
+            # Validate Location input
+            if not location:
+                messagebox.showerror("Error", "Please select a location.")
+                return
+
+            # Validate Status input
+            if not status:
+                messagebox.showerror("Error", "Please select a status.")
+                return
+
+            # Validate Asset Type input
+            if not asset_type:
+                messagebox.showerror("Error", "Please select an asset type.")
+                return
+
+            # Validate Confidentiality input
+            if not confidentiality:
+                messagebox.showerror("Error", "Please select a confidentiality.")
+                return
+
+            # Validate Integrity input
+            if not integrity:
+                messagebox.showerror("Error", "Please select an integrity.")
+                return
+
+            # Validate Availability input
+            if not availability:
+                messagebox.showerror("Error", "Please select an availability.")
+                return
+
+            # Validate Asset Value input
+            if not value:
+                messagebox.showerror("Error", "Please select an asset value.")
+                return
+
+            # Validate Confidentiality Classification of Asset input
+            if not conf_class:
+                messagebox.showerror("Error", "Please select a confidentiality classification of asset.")
+                return
+
+            # Add the Main Category of Asset to the DataFrame
+            new_item_df["Main Category of Asset"] = maincategory
+            new_item_df["Sub Category of Asset"] = subcategory
+            new_item_df["Location"] = location
+            new_item_df["Status"] = status
+            new_item_df["Asset Type"] = asset_type
+            new_item_df["Confidentiality"] = confidentiality
+            new_item_df["Integrity"] = integrity
+            new_item_df["Availability"] = availability
+            new_item_df["Asset Value"] = value
+            new_item_df["Confidentiality Classification of Asset"] = conf_class
+
+            # Concatenate the new DataFrame with the existing inventory DataFrame
+            self.inventory_df = pd.concat([self.inventory_df, new_item_df], ignore_index=True)
+
+            # Clear the input fields after adding the item
+            self.clear_entry_fields()
+
+            # Update the Treeview with the new item
+            self.update_table()
+
+            # Save changes to the Excel file
+            self.save_to_excel()
+
+        except Exception as e:
+            # Handle any other unexpected errors that may occur during the addition process
+            messagebox.showerror("Error", f"An error occurred while adding the item: {e}")
+
+    def remove_product(self):
+        selected_item = self.tree.selection()
+        if not selected_item:
+            messagebox.showerror("Error", "Please select an item to remove.")
+            return
+
+        try:
+            # Get the index of the selected item
+            item_index = self.tree.index(selected_item)
+
+            # Remove the item from the Treeview
+            self.tree.delete(selected_item)
+
+            # Update the inventory DataFrame to exclude the removed item
+            self.inventory_df = self.inventory_df.drop(item_index)
+
+            # Save changes to the Excel file
+            self.save_to_excel()
+
+            # Show a success message
+            messagebox.showinfo("Success", "Item has been successfully removed.")
+
+        except Exception as e:
+            # Handle any unexpected errors that may occur during the removal process
+            messagebox.showerror("Error", f"An error occurred while removing the item: {e}")
+
+    def edit_product(self):
+        # Get the selected item from the treeview
+        selected_item = self.tree.selection()
+
+        if not selected_item:
+            # If no item has been selected, show a message box and return without editing
+            messagebox.showinfo("No Item Selected", "Please select an item to edit.")
+            return
+
+        try:
+            # Get the index of the selected item from the filtered indices
+            filtered_index = self.tree.index(selected_item)
+
+            # Map the filtered index to the original index using filtered_indices
+            original_index = self.filtered_indices[filtered_index]
+
+            # Retrieve the previous data for the selected item from the DataFrame
+            previous_data = self.inventory_df.iloc[original_index].to_dict()
+
+            # Get the updated data from the entry fields
+            edited_data = {
+                "Main Category of Asset": self.maincategory_combobox.get(),
+                "Sub Category of Asset": self.subcategory_combobox.get(),
+                "Product ID": self.id_entry.get(),
+                "Asset Name": self.assetname_entry.get(),
+                "Supplier": self.supplier_entry.get(),
+                "Location": self.location_combobox.get(),
+                "Status": self.status_combobox.get(),
+                "Asset Description": self.assetdescription_entry.get(),
+                "Asset Type": self.asset_type_combobox.get(),
+                "Brand": self.brand_entry.get(),
+                "Model": self.model_entry.get(),
+                "Serial Number": self.serial_entry.get(),
+                "Quantity": self.quantity_entry.get(),
+                "Purchase Date": self.purchase_date_entry.get(),
+                "Title of Asset Owner": self.title_entry.get(),
+                "Owner Department of Asset": self.owner_department_entry.get(),
+                "Used by Process": self.process_entry.get(),
+                "Confidentiality": self.confidentiality_combobox.get(),
+                "Integrity": self.integrity_combobox.get(),
+                "Availability": self.availability_combobox.get(),
+                "Asset Value": self.value_combobox.get(),
+                "Confidentiality Classification of Asset": self.conf_class_combobox.get(),
+                "RTO": self.rto_entry.get(),
+                "RPO": self.rpo_entry.get()
+            }
+
+            # Check if the edited quantity is a non-negative integer
+            edited_quantity = edited_data["Quantity"]
+            if edited_quantity.strip() != "":
+                try:
+                    edited_quantity = int(edited_quantity)
+                    if edited_quantity < 0:
+                        raise ValueError("Quantity must be a non-negative integer.")
+                except ValueError as e:
+                    # If the quantity is not a valid integer, show an error message
+                    messagebox.showerror("Invalid Quantity", f"Invalid quantity: {e}")
+                    return
+
+            # Check if the entered ID is empty
+            edited_id = edited_data["Product ID"]
+            if not edited_id:
+                # Assign the smallest unique ID to the item
+                edited_id = str(self.get_smallest_unique_id())
+            else:
+                try:
+                    edited_id = int(edited_id)
+                except ValueError:
+                    messagebox.showerror("Error", "Please enter a valid numeric ID.")
+                    return
+
+                if edited_id in self.inventory_df["Product ID"].values:
+                    messagebox.showerror("Error", "Entered ID already exists. Please enter a unique ID.")
+                    return
+
+            # Check if a serial number was entered
+            edited_serial = edited_data["Serial Number"]
+            if edited_serial:
+                if edited_serial in self.inventory_df["Serial Number"].values:
+                    messagebox.showerror("Error",
+                                         f"Serial Number '{edited_serial}' already exists! Please enter a different serial number.")
+                    return
+
+            # Update the inventory DataFrame with the edited data
+            for column, edited_value in edited_data.items():
+                if edited_value.strip() == "":
+                    # If the edited value is empty, use the previous value from the DataFrame
+                    self.inventory_df.at[original_index, column] = previous_data[column]
+                else:
+                    # Otherwise, use the edited value
+                    self.inventory_df.at[original_index, column] = edited_value
+
+            # Update the "Review Date" field with the current date
+            #self.inventory_df.at[index, "Review Date"] = datetime.datetime.now()
+
+            # Update the treeview with the edited data
+            self.update_table()
+
+            # Show a message box to indicate the successful edit
+            order_number = original_index + 1  # Adding 1 to convert index to order number
+            messagebox.showinfo("Edit Successful", f"Item {order_number} has been edited successfully.")
+
+            # Clear the entry fields after editing
+            self.clear_entry_fields()
+
+            # Save the updated DataFrame to the Excel file
+            self.save_to_excel()
+
+
+        except Exception as e:
+            # Handle any other unexpected errors
+            messagebox.showerror("Error", f"An error occurred: {str(e)}")
+
+    def clear_entry_fields(self):
+        # Clear the content of all entry fields
+        self.maincategory_combobox.delete(0, tk.END)
+        self.subcategory_combobox.delete(0, tk.END)
+        self.id_entry.delete(0, tk.END)
+        self.assetname_entry.delete(0, tk.END)
+        self.supplier_entry.delete(0, tk.END)
+        self.location_combobox.delete(0, tk.END)
+        self.status_combobox.delete(0, tk.END)
+        self.assetdescription_entry.delete(0, tk.END)
+        self.asset_type_combobox.delete(0, tk.END)
+        self.brand_entry.delete(0, tk.END)
+        self.model_entry.delete(0, tk.END)
+        self.serial_entry.delete(0, tk.END)
+        self.quantity_entry.delete(0, tk.END)
+        self.purchase_date_entry.delete(0, tk.END)
+        self.title_entry.delete(0, tk.END)
+        self.owner_department_entry.delete(0, tk.END)
+        self.process_entry.delete(0, tk.END)
+        self.confidentiality_combobox.delete(0, tk.END)
+        self.integrity_combobox.delete(0, tk.END)
+        self.availability_combobox.delete(0, tk.END)
+        self.value_combobox.delete(0, tk.END)
+        self.conf_class_combobox.delete(0, tk.END)
+        self.rto_entry.delete(0, tk.END)
+        self.rpo_entry.delete(0, tk.END)
+
+    def search_items(self, event):
+        # Get the search query from the entry field
+        query = self.search_entry.get().lower()
+
+        # Filter the inventory DataFrame based on the search query
+        filtered_df = self.inventory_df[
+            self.inventory_df.apply(lambda row: any(query in str(val).lower() for val in row), axis=1)
+        ]
+
+        # Update the original indices of filtered items
+        self.filtered_indices = filtered_df.index.tolist()
+
+        # Update the treeview with the filtered results using the original indices
+        self.update_table(filtered_df)
+
+        # Update the filtered_inventory_df only
+        self.filtered_inventory_df = filtered_df.copy()
+
+    def update_subcategories(self, event):
+        # Get the selected main category from the maincategory_combobox
+        selected_main_category = self.maincategory_combobox.get()
+
+        # Clear the subcategory_combobox values
+        self.subcategory_combobox.set("")  # Clear the current selection
+        self.subcategory_combobox["values"] = []  # Clear the available options
+
+        # Check if the selected main category has associated subcategories
+        if selected_main_category:
+            # Read the subcategories from the "rows.xlsx" file for the selected main category
+            self.subcategory = self.read_column("rows.xlsx", "Sub Category of Asset", selected_main_category)
+
+            # Filter out any NaN values from the subcategory list
+            self.subcategory = [subcat for subcat in self.subcategory if pd.notna(subcat)]
+
+            # Update the subcategory_combobox values with the new subcategories
+            if self.subcategory:
+                self.subcategory_combobox["values"] = self.subcategory
+            else:
+                self.subcategory_combobox["values"] = [""]
+        else:
+            self.subcategory_combobox["values"] = [""]
+
+    def sort_column(self, col, reverse):
+        """Sorts the Treeview by the specified column."""
+        data = [(self.tree.set(child, col), child) for child in self.tree.get_children("")]
+        data.sort(reverse=reverse)
+
+        for index, item in enumerate(data):
+            self.tree.move(item[1], "", index)
+
+        # Change the sorting function for the next click
+        self.tree.heading(col, command=lambda c=col: self.sort_column(c, not reverse))
+
+    def remove_by_product_id(self):
+        product_id_to_remove = self.remove_by_product_id_entry.get()
+
+        if not product_id_to_remove:
+            messagebox.showerror("Error", "Please enter a Product ID to remove.")
+            return
+
+        try:
+            product_id_to_remove = int(product_id_to_remove)
+
+            # Check if the product ID exists in the DataFrame
+            if product_id_to_remove not in self.inventory_df["Product ID"].values:
+                messagebox.showerror("Error", f"Item with Product ID {product_id_to_remove} not found.")
+                return
+
+            # Ask for confirmation before removing the item
+            confirmation = messagebox.askyesno("Confirm Removal",
+                                               f"Are you sure you want to remove the item with Product ID {product_id_to_remove}?")
+            if not confirmation:
+                return
+
+            # Find the row in the DataFrame with the given Product ID
+            row_to_remove = self.inventory_df[self.inventory_df["Product ID"] == product_id_to_remove]
+
+            # Remove the row from the DataFrame
+            self.inventory_df = self.inventory_df.drop(row_to_remove.index)
+            self.save_to_excel()
+            self.update_table()  # Update the table to reflect the changes
+            messagebox.showinfo("Success", f"Item with Product ID {product_id_to_remove} has been removed.")
+        except ValueError:
+            messagebox.showerror("Error", "Please enter a valid Product ID.")
+
+    def get_smallest_unique_id(self):
+        # Get the maximum existing product ID
+        max_existing_id = self.inventory_df["Product ID"].max()
+
+        for i in range(1, max_existing_id + 2):  # Loop from 1 to max_existing_id + 1
+            if i not in self.inventory_df["Product ID"].values:
+                return i
+
+    def select_treeview_item(self, event):
+        selected_item = self.tree.selection()
+        if selected_item:
+            self.selected_product_id = self.tree.item(selected_item[0], "values")[2]
+            self.remove_by_product_id_entry.delete(0, tk.END)
+            self.remove_by_product_id_entry.insert(0, str(self.selected_product_id))

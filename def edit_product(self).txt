@@ -1,0 +1,121 @@
+    def edit_product(self):
+        product_id_to_edit = self.edit_by_product_id_entry.get()
+
+        if not product_id_to_edit:
+            messagebox.showerror("Error", "Please enter a Product ID to edit.")
+            return
+
+        try:
+            product_id_to_edit = int(product_id_to_edit)
+
+            # Check if the product ID exists in the DataFrame
+            if product_id_to_edit not in self.inventory_df["Product ID"].values:
+                messagebox.showerror("Error", f"Item with Product ID {product_id_to_edit} not found.")
+                return
+
+            # Find the row in the DataFrame with the given Product ID
+            row_to_edit = self.inventory_df[self.inventory_df["Product ID"] == product_id_to_edit]
+
+            self.save_to_excel()
+            self.update_table()  # Update the table to reflect the changes
+            messagebox.showinfo("Success", f"Item with Product ID {product_id_to_edit} has been edited.")
+        except ValueError:
+            messagebox.showerror("Error", "Please enter a valid Product ID.")
+        # EDIT
+            # Get the updated data from the entry fields
+            edited_data = {
+                "Main Category of Asset": self.maincategory_combobox.get(),
+                "Sub Category of Asset": self.subcategory_combobox.get(), #if self.subcategory_combobox.get() != "Please pick the main category at first" else previous_data["Sub Category of Asset"],
+                "Product ID": self.id_entry.get(),
+                "Asset Name": self.assetname_entry.get(),
+                "Supplier": self.supplier_entry.get(),
+                "Location": self.location_combobox.get(),
+                "Status": self.status_combobox.get(),
+                "Asset Description": self.assetdescription_entry.get(),
+                "Asset Type": self.asset_type_combobox.get(),
+                "Brand": self.brand_entry.get(),
+                "Model": self.model_entry.get(),
+                "Serial Number": self.serial_entry.get(),
+                "Quantity": self.quantity_entry.get(),
+                "Purchase Date": self.purchase_date_entry.get(),
+                "Title of Asset Owner": self.title_entry.get(),
+                "Owner Department of Asset": self.owner_department_entry.get(),
+                "Used by Process": self.process_entry.get(),
+                "Confidentiality": self.confidentiality_combobox.get(),
+                "Integrity": self.integrity_combobox.get(),
+                "Availability": self.availability_combobox.get(),
+                "Asset Value": self.value_combobox.get(),
+                "Confidentiality Classification of Asset": self.conf_class_combobox.get(),
+                "RTO": self.rto_entry.get(),
+                "RPO": self.rpo_entry.get()
+            }
+
+            # Check if the edited quantity is a non-negative integer
+            edited_quantity = edited_data["Quantity"]
+            if edited_quantity.strip() != "":
+                try:
+                    edited_quantity = int(edited_quantity)
+                    if edited_quantity < 0:
+                        raise ValueError("Quantity must be a non-negative integer.")
+                except ValueError as e:
+                    # If the quantity is not a valid integer, show an error message
+                    messagebox.showerror("Invalid Quantity", f"Invalid quantity: {e}")
+                    return
+
+            # Check if the entered ID is empty
+            edited_id = edited_data["Product ID"]
+            if not edited_id:
+                # Assign the smallest unique ID to the item
+                edited_id = str(self.get_smallest_unique_id())
+            else:
+                try:
+                    edited_id = int(edited_id)
+                except ValueError:
+                    messagebox.showerror("Error", "Please enter a valid numeric ID.")
+                    return
+
+                if edited_id in self.inventory_df["Product ID"].values:
+                    messagebox.showerror("Error", "Entered ID already exists. Please enter a unique ID.")
+                    return
+
+            # Check if a serial number was entered
+            edited_serial = edited_data["Serial Number"]
+            if edited_serial:
+                if edited_serial in self.inventory_df["Serial Number"].values:
+                    messagebox.showerror("Error",
+                                         f"Serial Number '{edited_serial}' already exists! Please enter a different serial number.")
+                    return
+
+            # Ask for confirmation before editing the item
+            confirmation = messagebox.askyesno("Confirm Edit",
+                                               f"Are you sure you want to edit the item with Product ID {product_id_to_edit}?")
+            if not confirmation:
+                return
+
+            # Update the inventory DataFrame with the edited data
+            """for column, edited_value in edited_data.items():
+                if edited_value.strip() == "":
+                    # If the edited value is empty, use the previous value from the DataFrame
+                    self.inventory_df.at[index, column] = previous_data[column]
+                else:
+                    # Otherwise, use the edited value
+                    self.inventory_df.at[index, column] = edited_value"""
+
+            # Update the "Review Date" field with the current date
+            #self.inventory_df.at[index, "Review Date"] = datetime.datetime.now()
+
+            # Update the treeview with the edited data
+            self.update_table()
+
+            # Show a message box to indicate the successful edit
+            messagebox.showinfo("Edit Successful", "Item has been edited successfully.")
+
+            # Clear the entry fields after editing
+            self.clear_entry_fields()
+
+            # Save the updated DataFrame to the Excel file
+            self.save_to_excel()
+
+        except Exception as e:
+            # Handle any other unexpected errors
+            messagebox.showerror("Error", f"An error occurred: {str(e)}")
