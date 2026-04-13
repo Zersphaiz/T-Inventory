@@ -1,0 +1,11 @@
+*.py linguist-language=Python
+
+auto-py-to-exe/** linguist-vendored
+auto-py-to-exe-master/** linguist-vendored
+
+build/** linguist-generated
+dist/** linguist-generated
+output/** linguist-generated
+.idea/** linguist-generated
+__pycache__/** linguist-generated
+venv/** linguist-generated
