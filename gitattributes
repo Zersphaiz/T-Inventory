@@ -1,0 +1,13 @@
+*.py linguist-language=Python
+
+# Üçüncü taraf / gömülü araç klasörü
+auto-py-to-exe-master/** linguist-vendored
+
+# Derleme / çıktı klasörleri
+build/** linguist-generated
+dist/** linguist-generated
+output/** linguist-generated
+
+# IDE / cache
+.idea/** linguist-generated
+__pycache__/** linguist-generated
